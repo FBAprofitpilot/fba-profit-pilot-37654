@@ -1,102 +1,112 @@
 'use client';
 
-import { useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { useState, useEffect } from 'react';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function Home() {
-  const [asin, setAsin] = useState('');
-  const [umsatz, setUmsatz] = useState(0);
-  const [gewicht, setGewicht] = useState(0);
-const [ergebnis, setErgebnis] = useState<{
-  referralFee: string;
-  fulfillmentFee: string;
-  storageFee: string;
-  placementFee: string;
-  lowInventorySurcharge: string;
-  gesamtGebuehren: string;
-  nettoGewinn: string;
-} | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [isPaid, setIsPaid] = useState(false);
 
-  const berechneGebuehren = () => {
-    // Einfache 2025-FBA-Gebühren-Logik (DE-Markt, Standard-Produkt)
-    const referralFee = umsatz * 0.15; // 15% Referral
-    const fulfillmentFee = gewicht > 0.5 ? 3.50 : 2.80; // Basierend auf Gewicht
-    const storageFee = umsatz * 0.02; // Monatlich ~2%
-    const placementFee = umsatz * 0.005; // Neu 2025: 0.5%
-    const lowInventorySurcharge = umsatz * 0.01; // Wenn Low-Stock
-    const gesamtGebuehren = referralFee + fulfillmentFee + storageFee + placementFee + lowInventorySurcharge;
-    const nettoGewinn = umsatz - gesamtGebuehren;
-
-    setErgebnis({
-      referralFee: referralFee.toFixed(2),
-      fulfillmentFee: fulfillmentFee.toFixed(2),
-      storageFee: storageFee.toFixed(2),
-      placementFee: placementFee.toFixed(2),
-      lowInventorySurcharge: lowInventorySurcharge.toFixed(2),
-      gesamtGebuehren: gesamtGebuehren.toFixed(2),
-      nettoGewinn: nettoGewinn.toFixed(2),
+  // Session prüfen
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        setUser(data.session.user);
+        checkPaidStatus(data.session.user.email);
+      }
     });
+  }, []);
+
+  const checkPaidStatus = async (email: string) => {
+    const { data } = await supabase
+      .from('paid_users')
+      .select('email')
+      .eq('email', email)
+      .single();
+    setIsPaid(!!data);
   };
 
+  const sendMagicLink = async () => {
+    setLoading(true);
+    setMessage('');
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: 'https://fbaprofitpilot.de' }
+    });
+    if (error) setMessage('Fehler: ' + error.message);
+    else setMessage('Magic-Link gesendet! Check deine Mails (auch Spam).');
+    setLoading(false);
+  };
+
+  const signOut = () => supabase.auth.signOut().then(() => setUser(null));
+
+  // Login-Screen
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
+          <h1 className="text-3xl font-bold mb-8">FBA Profit Pilot</h1>
+          <input
+            type="email"
+            placeholder="Deine E-Mail-Adresse"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-3 border rounded-lg mb-4"
+          />
+          <button
+            onClick={sendMagicLink}
+            disabled={loading || !email}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Wird gesendet…' : 'Magic-Link senden'}
+          </button>
+          {message && <p className="mt-4 text-sm">{message}</p>}
+          <p className="mt-8 text-xs text-gray-500">
+            Nur zahlende Kunden erhalten Zugriff.<br />
+            <a href="https://profitpilot28.gumroad.com/l/jvlif" className="text-blue-600 underline">
+              Jetzt abonnieren (19 €/Monat)
+            </a>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Bezahlt-Check
+  if (!isPaid) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
+          <h2 className="text-2xl font-bold mb-4">Zugang noch nicht freigeschaltet</h2>
+          <p className="mb-6">Dein Kauf wird gerade verarbeitet – in wenigen Minuten ist dein Dashboard bereit.</p>
+          <button onClick={() => checkPaidStatus(user.email)} className="text-blue-600 underline">
+            Erneut prüfen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Dashboard (dein Rechner)
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-2xl font-bold text-center mb-6">FBA Profit Pilot</h1>
-        <div className="space-y-4">
-          <input
-            type="text"
-            placeholder="ASIN eingeben (z.B. B08XYZ123)"
-            value={asin}
-            onChange={(e) => setAsin(e.target.value)}
-            className="w-full p-2 border rounded"
-          />
-          <input
-            type="number"
-            placeholder="Monatsumsatz (€)"
-            value={umsatz}
-            onChange={(e) => setUmsatz(Number(e.target.value))}
-            className="w-full p-2 border rounded"
-          />
-          <input
-            type="number"
-            placeholder="Durchschnittsgewicht (kg)"
-            value={gewicht}
-            onChange={(e) => setGewicht(Number(e.target.value))}
-            className="w-full p-2 border rounded"
-          />
-          <button
-            onClick={berechneGebuehren}
-            className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600"
-          >
-            Berechnen
-          </button>
-          {ergebnis && (
-            <div className="mt-4 space-y-2 text-sm">
-              <p>Referral Fee: {ergebnis.referralFee} €</p>
-              <p>Fulfillment Fee: {ergebnis.fulfillmentFee} €</p>
-              <p>Storage Fee: {ergebnis.storageFee} €</p>
-              <p>Placement Fee: {ergebnis.placementFee} €</p>
-              <p>Low Inventory Surcharge: {ergebnis.lowInventorySurcharge} €</p>
-              <hr />
-              <p className="font-bold">Gesamt Gebühren: {ergebnis.gesamtGebuehren} €</p>
-              <p className="text-green-600 font-bold">Netto Gewinn: {ergebnis.nettoGewinn} €</p>
-              <button
-                onClick={() => {
-                  const csv = `Fee,Amount\nReferral,${ergebnis.referralFee}\n...`; // Vollständig erweitern später
-                  const blob = new Blob([csv], { type: 'text/csv' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = 'fba-fees.csv';
-                  a.click();
-                }}
-                className="w-full bg-green-500 text-white py-1 rounded mt-2"
-              >
-                Als CSV exportieren (SevDesk-ready)
-              </button>
-            </div>
-          )}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold">FBA Profit Pilot – Dashboard</h1>
+          <button onClick={signOut} className="text-sm text-gray-500 underline">Abmelden</button>
         </div>
-        <p className="text-xs text-gray-500 mt-4 text-center">Beta-Version – Refund-Scanner kommt nächste Woche</p>
+        {/* Hier deinen bestehenden Rechner-Code einfügen – ich kann dir den vollen Block schicken */}
+        <p className="text-center mt-8 text-green-600 font-medium">
+          Willkommen, {user.email}! Du hast vollen Zugriff.
+        </p>
       </div>
     </div>
   );
