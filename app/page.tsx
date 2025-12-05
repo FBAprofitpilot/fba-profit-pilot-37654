@@ -20,7 +20,7 @@ export default function Home() {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
         setUser(data.session.user);
-        checkPaidStatus(data.session.user.email);
+        checkPaidStatus(data.session.user.email ?? '');
       }
     });
   }, []);
